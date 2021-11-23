@@ -110,7 +110,67 @@ static visualization_msgs::Marker createBoxMarker(double x, double y, double z,
 	marker.color.r = color.redF();
 	marker.color.g = color.greenF();
 	marker.color.b = color.blueF();
-	marker.color.a = color.alphaF();
+	marker.color.a = color.alphaF()*.5;
+
+	return marker;
+}
+
+
+static visualization_msgs::Marker createXArrow() {
+	visualization_msgs::Marker marker;
+	geometry_msgs::Point s, e;
+	marker.type = visualization_msgs::Marker::ARROW;
+	marker.scale.x = .05;
+	marker.scale.y = .1;
+	marker.scale.z = .1;
+	e.x = .25; 
+	marker.points.push_back(s);
+	marker.points.push_back(e);
+
+	marker.color.r = 0;
+	marker.color.g = 255;
+	marker.color.b = 0;
+	marker.color.a = 255;
+
+	return marker;
+}
+
+static visualization_msgs::Marker createYArrow() {
+	visualization_msgs::Marker marker;
+	geometry_msgs::Point s, e;
+	marker.type = visualization_msgs::Marker::ARROW;
+	marker.scale.x = .05;
+	marker.scale.y = .1;
+	marker.scale.z = .1;
+	e.y = .25; 
+
+	marker.points.push_back(s);
+	marker.points.push_back(e);
+
+	marker.color.r = 255;
+	marker.color.g = 0;
+	marker.color.b = 0;
+	marker.color.a = 255;
+
+	return marker;
+}
+
+static visualization_msgs::Marker createZArrow() {
+	visualization_msgs::Marker marker;
+	geometry_msgs::Point s, e;
+	marker.type = visualization_msgs::Marker::ARROW;
+	marker.scale.x = .05;
+	marker.scale.y = .1;
+	marker.scale.z = .1;
+	e.z = .25; 
+
+	marker.points.push_back(s);
+	marker.points.push_back(e);
+
+	marker.color.r = 0;
+	marker.color.g = 0;
+	marker.color.b = 255;
+	marker.color.a = 255;
 
 	return marker;
 }

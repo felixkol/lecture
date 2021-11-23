@@ -3,8 +3,11 @@
 #include "Interpolation.h"
 
 #include <QVBoxLayout>
+
 #include <Eigen/Core>
 #include <ros/ros.h>
+#include <ros/console.h>
+
 
 MainWindow::MainWindow(QWidget *parent) :
    QMainWindow(parent), spinner(1)
@@ -14,11 +17,16 @@ MainWindow::MainWindow(QWidget *parent) :
 
 	server->applyChanges();
 	spinner.start();
+
+	timer = new QTimer(this);
+	this->t = 0.0;
+	
 }
 
 MainWindow::~MainWindow()
 {
 	spinner.stop();
+	timer->stop();
 }
 
 static void linkAxes(RotationControl *f1, RotationControl *f2) {
@@ -28,22 +36,37 @@ static void linkAxes(RotationControl *f1, RotationControl *f2) {
 	                 f1, SLOT(setEulerAxes(uint,uint,uint)));
 }
 
+
+
 void MainWindow::setupUi() {
 	QWidget *central = new QWidget(this);
 
 	double s = 0.5;
 	QColor grey("grey"), red("red"), green("green");
 	frame1 = new RotationControl("frame 1", Eigen::Vector3d(-s,s,0), grey, server, this);
+	frame11 = new RotationControl("frame 1 - different axis", Eigen::Vector3d(-s,s,5), grey, server, this);
 	frame2 = new RotationControl("frame 2", Eigen::Vector3d( s,s,0), grey, server, this);
 	frame1p2 = new RotationControl("frame 1+2", Eigen::Vector3d(-s,-s,0), red, server, this);
 	frame1c2 = new RotationControl("frame 1*2", Eigen::Vector3d( s,-s,0), green, server, this);
+	frameS= new RotationControl("frame slerp", Eigen::Vector3d( 0,3*s,0), green, server, this);
+
+	slide = new QSlider(Qt::Horizontal, this);
+	slide->setMinimum(0);
+	slide->setMaximum(1000);
+
+	QObject::connect(frame1, SIGNAL(valueChanged(Eigen::Quaterniond)),
+	                 frame11, SLOT(setValue(Eigen::Quaterniond)));
+
+	QObject::connect(slide, &QSlider::valueChanged, this, &MainWindow::slerp);
 
 	QVBoxLayout *layout = new QVBoxLayout(central);
 	layout->addWidget(frame1);
+	layout->addWidget(frame11);
 	layout->addWidget(frame2);
 	layout->addWidget(frame1p2);
 	layout->addWidget(frame1c2);
-
+	layout->addWidget(frameS);
+	layout->addWidget(slide);
 	this->setCentralWidget(central);
 
 	linkAxes(frame1, frame2);
@@ -71,4 +94,40 @@ void MainWindow::updateFrames()
 
 	Eigen::Vector3d e = frame1->eulerAngles() + frame2->eulerAngles();
 	frame1p2->setEulerAngles(e[0], e[1], e[2]);
+}
+
+void MainWindow::rotChanged(){
+	Eigen::Vector3d aE = this->frame1->eulerAngles() + this->frame2->eulerAngles();
+	Eigen::Quaterniond mQ = this->frame1->value() * this->frame2->value();
+	this->frame1p2->setEulerAngles(aE[0],aE[1],aE[2]);
+	this->frame1c2->setValue(mQ);
+}
+
+void MainWindow::slerp(int i){
+	double t = i/1000.0;
+	
+	Eigen::Quaterniond q1 = this->frame1->value();
+	Eigen::Quaterniond q2 = this->frame2->value();
+
+	double  theta = acos(q1.dot(q2));
+
+
+	if (abs(theta) == 0 )
+	{
+		this->frameS->setValue(q1);
+		return;
+	}
+
+	double sT = sin(theta); 
+	double ratio1 = sin( (1 - t) *theta )/sT;
+	double ratio2 = sin( t*theta )/sT;
+
+	Eigen::Quaterniond slerp = Eigen::Quaterniond::Identity();
+	
+	slerp.w() = ratio1* q1.w() + ratio2*q2.w();
+	slerp.x() = ratio1* q1.x() + ratio2*q2.x();
+	slerp.y() = ratio1* q1.y() + ratio2*q2.y();
+	slerp.z() = ratio1* q1.z() + ratio2*q2.z();
+
+	this->frameS->setValue(slerp);
 }
