@@ -2,6 +2,8 @@
 
 import numpy
 import math
+from qpsolvers import solve_qp
+
 import rospy
 import random
 from std_msgs.msg import Header, ColorRGBA
@@ -125,6 +127,38 @@ class Controller(object):
         msg.markers.append(self.trace_marker)
         self.marker_pub.publish(msg)
 
+    def solve_qp(self,  eq_tasks=[], ineq_tasks=[]):
+        if isinstance(eq_tasks, tuple):
+            eq_tasks = [eq_tasks]
+        
+        if isinstance(ineq_tasks, tuple):
+            ineq_tasks = [ineq_tasks]
+
+        G, h = self.stack(ineq_tasks)
+        A, b = self.stack(eq_tasks)
+
+        def qp_one():
+            P = numpy.identity(self.N)
+            q = numpy.zeros(self.N)
+            return P,q, A,b, G, h
+
+        def qp_two():
+            P = 2*A.T.dot(A) + numpy.identity(A.shape[0]) * 0
+            q = -2*A.T.dot(b)
+            return P,q, None, None, G,h
+
+        P,q, A,b, G, h = qp_one()
+
+        lb = numpy.maximum(-0.5, self.mins - self.joint_msg.position)
+        ub = numpy.minimum(0.5, self.maxs - self.joint_msg.position)
+
+        dq = solve_qp(P, q, G, h, A, b, lb, ub)
+
+        if dq is None:
+            return numpy.zeros(self.N)
+        return dq
+
+
     def solve(self, tasks):
         """Hierarchically solve tasks of the form J dq = e"""
         def invert_clip(s):
@@ -166,6 +200,8 @@ class Controller(object):
     @staticmethod
     def stack(tasks):
         """Combine all tasks by stacking them into a single Jacobian"""
+        if len(tasks) == 0:  
+            return (None, None)
         Js, errs = zip(*tasks)
         return numpy.vstack(Js), numpy.hstack(errs)
 
@@ -243,6 +279,7 @@ if __name__ == '__main__':
     c = Controller()
     c.addMarker(iPoseMarker(c.T))
     rate = rospy.Rate(50)
+
     while not rospy.is_shutdown():
         c.hierarchic_control(c.targets['pose'])
         rate.sleep()
