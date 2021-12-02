@@ -75,9 +75,12 @@ class Gui(QWidget):
             c.addConeMarker(pose=T.dot(tf.rotation_matrix(math.pi/2, [-1, 0, 0])))
 
         ns_old = numpy.zeros((c.N, 0))
+        ieqT = []
+        tasks = []
         while not rospy.is_shutdown():
             if task == 0:  # position + orientation control
                 tasks = [c.pose_task(c.targets['pose'], c.T)]
+
             elif task >= 1 and task <= 4:
                 # move on a plane spanned by xy axes of marker
                 T = c.targets['plane']
@@ -95,40 +98,22 @@ class Gui(QWidget):
                 if task == 3:  # using parallel_axes_task
                     tasks.append(c.parallel_axes_task(numpy.array([0, 1, 0]), normal))
             elif task >= 5 and task <= 6:  # constrain position
-                J, e = c.position_task(c.targets['pos'], c.T)
-                lb_violated, ub_violated = (e < -tol), (e > tol)
-                violated = lb_violated | ub_violated
-                # clip errors to box boundaries
-                clipped = numpy.array(e, copy=True)
-                clipped[lb_violated] -= -tol[lb_violated]
-                clipped[ub_violated] -= tol[ub_violated]
-                # if error violates box constraint, move into box via equality task and clipped error
-                tasks = [(J[violated], clipped[violated])]
+                e = c.targets['pos'][:3,3] - c.T[:3,3]
+                J,l,u = c.J[:3], (e - tol), (e+tol)
+                ieqT = [(J,u),(-J,-l)]
+
             if task in [4, 6]:  # additionally constrain orientation to cone
                 cone_pose = c.targets['cone_pose']
                 angle = c.targets['cone_angle']
-                tasks.append(c.cone_task(eef_axis, cone_pose[0:3, 2], threshold=math.cos(angle)))
+                ieqT.append(c.cone_task(eef_axis, cone_pose[0:3, 2], threshold=math.cos(angle)))
 
                 # publish orientation of eef_axis as 2nd cylinder of eef frame
                 T = c.T
                 T[:3, 3] = cone_pose[:3, 3]
                 c.marker_pub.publish(MarkerArray(markers=frame(T, scale=0.2, radius=0.01, ns='eef orientation')[1:2]))
 
-            self.showErrors(tasks)
-            q_delta = c.solve(tasks)
-
-            # nullspace control
-            N = c.nullspace.shape[1]  # dimensionality of nullspace
-            ns = numpy.array([s.value() for s in self.sliders[:N]])  # slider values
-            # disable inactive nullspace sliders
-            [s.setEnabled(i < N) for i, s in enumerate(self.sliders)]
-            # align new nullspace basis to previous one (vectors might be flipped)
-            N = min(N, ns_old.shape[1])  # minimum number of columns before and now
-            c.nullspace[:, :N] *= numpy.sign(numpy.sum(c.nullspace[:, :N] * ns_old[:, :N], axis=0))
-            ns_old = c.nullspace
-            # apply nullspace motion
-            q_delta += c.nullspace.dot(1e-4 * ns)
-
+            #self.showErrors(tasks)            
+            q_delta = c.solve_qp(tasks,ieqT)
             c.actuate(q_delta)
             rate.sleep()
 
