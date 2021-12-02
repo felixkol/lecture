@@ -13,7 +13,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 from tf import transformations as tf
 from interactive_markers.interactive_marker_server import InteractiveMarkerServer, InteractiveMarkerFeedback
 from robot_model import RobotModel, Joint
-from markers import createPose, iPoseMarker, frame, iConeMarker
+from markers import addArrowControls, createPose, iPoseMarker, frame, iConeMarker
 
 
 def skew(w):
@@ -134,29 +134,34 @@ class Controller(object):
         if isinstance(ineq_tasks, tuple):
             ineq_tasks = [ineq_tasks]
 
-        G, h = self.stack(ineq_tasks)
         A, b = self.stack(eq_tasks)
+        G, h = self.stack(ineq_tasks)
 
-        def qp_one():
-            P = numpy.identity(self.N)
+        def qp_one(A,b,G,h, l):
+            P = numpy.identity(self.N) + numpy.identity(A.shape[1]) * l
             q = numpy.zeros(self.N)
             return P,q, A,b, G, h
 
-        def qp_two():
-            P = 2*A.T.dot(A) + numpy.identity(A.shape[0]) * 0
+        def qp_two(A,b, G, h,l):
+            if A is None:
+                A = numpy.identity(self.N)
+                b = numpy.zeros(self.N)
+
+            P = 2*A.T.dot(A) + numpy.identity(A.shape[1]) * l
             q = -2*A.T.dot(b)
             return P,q, None, None, G,h
 
-        P,q, A,b, G, h = qp_one()
+        P, q, A, b, G, h = qp_two(A,b,G,h, 1e-3)
 
-        lb = numpy.maximum(-0.5, self.mins - self.joint_msg.position)
-        ub = numpy.minimum(0.5, self.maxs - self.joint_msg.position)
-
-        dq = solve_qp(P, q, G, h, A, b, lb, ub)
-
-        if dq is None:
-            return numpy.zeros(self.N)
-        return dq
+        lb = numpy.maximum(-0.1, self.mins - self.joint_msg.position)
+        ub = numpy.minimum(0.1, self.maxs - self.joint_msg.position)
+        dq = None
+        try:
+            dq = solve_qp(P,q,G,h,A,b,lb,ub )
+        finally:
+            if dq is None:
+                return numpy.zeros(self.N)
+            return dq
 
 
     def solve(self, tasks):
